@@ -1,2 +1,3 @@
 # Build_HyperOS_Product_APKs
-#Build_HyperOS_Product_APKs 
+自动化构建提取HyperOS系统中Product分区中部分文件夹的系统APP
+包含：app，data-app，priv-app这三个文件夹
