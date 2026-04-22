@@ -1,0 +1,116 @@
+name: 📦 Extract Product Apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'HyperOS ROM 下载链接 (卡刷包 .zip)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Setup Environment
+        run: |
+          echo "=== 1. 初始化环境 ==="
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq
+          # 增加安装 zip 命令用于最终压缩
+          sudo apt-get install -yqq aria2 p7zip-full zip
+          
+          # 赋予提取工具权限
+          chmod -R +x tools/
+
+      - name: Download ROM with Aria2
+        run: |
+          echo "📥 下载 ROM 中..."
+          aria2c -x16 -s16 -j$(nproc) -U "Mozilla/5.0" -d . "${{ github.event.inputs.rom_url }}" -o rom.zip
+
+      - name: Extract Payload and Partitions
+        run: |
+          echo "📦 提取 Payload..."
+          7z e rom.zip payload.bin > /dev/null
+          rm rom.zip
+          
+          echo "🛠️ 仅提取 Product 镜像以节省时间..."
+          mkdir -p extracted_images
+          ./tools/payload_extract -s -o extracted_images -i payload.bin -X product -T0
+          rm payload.bin
+
+      - name: Extract EROFS (Product Only)
+        run: |
+          echo "📂 解包 Product EROFS 镜像..."
+          mkdir -p product_files
+          
+          cd product_files && sudo ../tools/extract.erofs -i ../extracted_images/product.img -x -s && cd ..
+          
+          sudo rm -rf extracted_images
+
+      - name: Collect Target Folders and Compress
+        run: |
+          echo "🔍 寻找并收集目标文件夹..."
+          mkdir -p target_apps
+          
+          # 为了兼容解包后可能的目录嵌套结构，遍历检查
+          for base_dir in "product_files" "product_files/product"; do
+            for target_dir in "app" "data-app" "priv-app"; do
+              if [ -d "$base_dir/$target_dir" ]; then
+                echo "复制找到的目录: $base_dir/$target_dir"
+                sudo cp -r "$base_dir/$target_dir" target_apps/
+              fi
+            done
+          done
+          
+          echo "🗜️ 正在压缩内容..."
+          # 更改权限防止 zip 遇到权限问题
+          sudo chown -R $USER:$USER target_apps/
+          cd target_apps
+          # 采用最高压缩率打包内容
+          zip -r9 ../Product_Apps.zip .
+          cd ..
+          
+          echo "✅ 提取与压缩完成，文件信息："
+          ls -lh Product_Apps.zip
+
+      - name: Generate Release Tag
+        id: tag
+        run: echo "release_tag=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Upload Compressed Apps to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: Product-Apps-${{ steps.tag.outputs.release_tag }}
+          name: "📦 Product 应用包纯提取 - ${{ steps.tag.outputs.release_tag }}"
+          body: |
+            ### Product 分区应用提取完成
+            **源 ROM**: ${{ github.event.inputs.rom_url }}
+            
+            包含 `product.img` 中解压出的以下文件夹完整内容：
+            * `app`
+            * `data-app`
+            * `priv-app`
+            
+            ⚠️ **注意**: 压缩包内的 APK 为官方原版纯提取，未进行任何精简或修改。
+          files: Product_Apps.zip
+          draft: false
+          prerelease: false
+
