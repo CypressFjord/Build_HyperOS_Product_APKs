@@ -1,4 +1,4 @@
-name: 📦 Extract Product Apps
+nname: 📦 Extract Product Apps Pro
 
 on:
   workflow_dispatch:
@@ -34,10 +34,7 @@ jobs:
           echo "=== 1. 初始化环境 ==="
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -qq
-          # 增加安装 zip 命令用于最终压缩
           sudo apt-get install -yqq aria2 p7zip-full zip
-          
-          # 赋予提取工具权限
           chmod -R +x tools/
 
       - name: Download ROM with Aria2
@@ -51,70 +48,103 @@ jobs:
           7z e rom.zip payload.bin > /dev/null
           rm rom.zip
           
-          echo "🛠️ 仅提取 Product 镜像以节省时间..."
+          echo "🛠️ 提取 Product 和 mi_ext 镜像..."
           mkdir -p extracted_images
-          ./tools/payload_extract -s -o extracted_images -i payload.bin -X product -T0
+          ./tools/payload_extract -s -o extracted_images -i payload.bin -X product,mi_ext -T0
           rm payload.bin
 
-      - name: Extract EROFS (Product Only)
+      - name: Extract EROFS Images
         run: |
-          echo "📂 解包 Product EROFS 镜像..."
-          mkdir -p product_files
+          echo "📂 解包 EROFS 镜像..."
+          mkdir -p product_files mi_ext_files
           
+          # 解包镜像
           cd product_files && sudo ../tools/extract.erofs -i ../extracted_images/product.img -x -s && cd ..
+          cd mi_ext_files && sudo ../tools/extract.erofs -i ../extracted_images/mi_ext.img -x -s && cd ..
           
           sudo rm -rf extracted_images
 
-      - name: Collect Target Folders and Compress
+      - name: Read Properties from mi_ext
+        id: props
         run: |
-          echo "🔍 寻找并收集目标文件夹..."
+          echo "🔍 正在读取 build.prop 信息..."
+          # 搜索 build.prop 文件位置
+          PROP_PATH=$(sudo find mi_ext_files -name "build.prop" | head -n 1)
+          
+          if [ -f "$PROP_PATH" ]; then
+            echo "找到配置文件: $PROP_PATH"
+            # 提取指定的值
+            OS_VER=$(sudo grep "ro.mi.os.version.incremental=" $PROP_PATH | cut -d'=' -f2)
+            MOD_DEV=$(sudo grep "ro.product.mod_device=" $PROP_PATH | cut -d'=' -f2)
+            XMS_VER=$(sudo grep "ro.mi.xms.version.incremental=" $PROP_PATH | cut -d'=' -f2)
+            
+            # 写入 GitHub Output 供后续步骤使用
+            echo "os_version=${OS_VER}" >> $GITHUB_OUTPUT
+            echo "mod_device=${MOD_DEV}" >> $GITHUB_OUTPUT
+            echo "xms_version=${XMS_VER}" >> $GITHUB_OUTPUT
+            
+            echo "✅ 提取成功: OS=$OS_VER, Device=$MOD_DEV, XMS=$XMS_VER"
+          else
+            echo "⚠️ 未找到 build.prop，将使用默认值"
+            echo "os_version=Unknown_OS" >> $GITHUB_OUTPUT
+            echo "mod_device=Unknown_Device" >> $GITHUB_OUTPUT
+            echo "xms_version=Unknown" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Collect Target Folders and Fast Compress
+        run: |
+          echo "🔍 寻找并整理目标文件夹..."
           mkdir -p target_apps
           
-          # 遍历检查目录
+          # 遍历 product 解压目录，寻找目标文件夹并复制
           for base_dir in "product_files" "product_files/product"; do
             for target_dir in "app" "data-app" "priv-app"; do
               if [ -d "$base_dir/$target_dir" ]; then
-                echo "复制找到的目录: $base_dir/$target_dir"
+                echo "发现并准备复制: $base_dir/$target_dir"
                 sudo cp -r "$base_dir/$target_dir" target_apps/
               fi
             done
           done
           
-          echo "🗜️ 正在分别压缩内容以绕过 2GB 限制..."
-          # 更改权限
+          echo "⚡ 正在执行多线程快速压缩 (7z -mx1)..."
+          # 必须更改所有者，否则压缩工具可能无法读取 sudo 复制的文件
           sudo chown -R $USER:$USER target_apps/
           cd target_apps
           
-          # 判断文件夹是否存在，如果存在则单独打包成对应的 zip
-          if [ -d "app" ]; then zip -r9 ../Product_app.zip app/; fi
-          if [ -d "priv-app" ]; then zip -r9 ../Product_priv-app.zip priv-app/; fi
-          if [ -d "data-app" ]; then zip -r9 ../Product_data-app.zip data-app/; fi
+          # 使用 7z 创建标准 ZIP 格式，-mx=1 (极速), -mmt=on (多线程)
+          if [ -d "app" ]; then 7z a -tzip -mx=1 -mmt=on ../Product_app.zip app/; fi
+          if [ -d "priv-app" ]; then 7z a -tzip -mx=1 -mmt=on ../Product_priv-app.zip priv-app/; fi
+          if [ -d "data-app" ]; then 7z a -tzip -mx=1 -mmt=on ../Product_data-app.zip data-app/; fi
           
           cd ..
-          
-          echo "✅ 提取与压缩完成，文件信息："
+          echo "✅ 压缩完成。"
           ls -lh Product_*.zip
 
       - name: Generate Release Tag
         id: tag
         run: echo "release_tag=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
-      - name: Upload Compressed Apps to Releases
+      - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: Product-Apps-${{ steps.tag.outputs.release_tag }}
-          name: "📦 Product 应用包纯提取 - ${{ steps.tag.outputs.release_tag }}"
+          tag_name: ${{ steps.props.outputs.os_version }}-${{ steps.tag.outputs.release_tag }}
+          name: "📦 Product 提取 - ${{ steps.props.outputs.os_version }}"
           body: |
-            ### Product 分区应用提取完成
+            ## 📱 系统版本信息
+            - **系统版本**: `${{ steps.props.outputs.os_version }}`
+            - **机型代号**: `${{ steps.props.outputs.mod_device }}`
+            - **SOTA版本**: `${{ steps.props.outputs.xms_version }}`
+            
+            ---
+            ## 📂 文件说明
             **源 ROM**: ${{ github.event.inputs.rom_url }}
             
-            为了绕过 GitHub 的 2GB 单文件限制，应用已按文件夹**分别打包**：
-            * `Product_app.zip` (对应 app 文件夹)
-            * `Product_priv-app.zip` (对应 priv-app 文件夹)
-            * `Product_data-app.zip` (对应 data-app 文件夹)
+            为了绕过 GitHub 2GB 上传限制，已将目录拆分打包：
+            - `Product_app.zip`: 普通应用文件夹
+            - `Product_priv-app.zip`: 私有系统应用文件夹
+            - `Product_data-app.zip`: 预装数据应用文件夹
             
-            ⚠️ **注意**: 压缩包内的 APK 为官方原版纯提取，未进行任何精简或修改。
-          # 这里改为使用通配符上传所有生成的 ZIP 文件
+            ⚡ *此包使用 7z 多线程极速压缩生成。*
           files: Product_*.zip
           draft: false
           prerelease: false
