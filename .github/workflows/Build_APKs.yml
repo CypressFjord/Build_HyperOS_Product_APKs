@@ -70,7 +70,7 @@ jobs:
           echo "🔍 寻找并收集目标文件夹..."
           mkdir -p target_apps
           
-          # 为了兼容解包后可能的目录嵌套结构，遍历检查
+          # 遍历检查目录
           for base_dir in "product_files" "product_files/product"; do
             for target_dir in "app" "data-app" "priv-app"; do
               if [ -d "$base_dir/$target_dir" ]; then
@@ -80,16 +80,20 @@ jobs:
             done
           done
           
-          echo "🗜️ 正在压缩内容..."
-          # 更改权限防止 zip 遇到权限问题
+          echo "🗜️ 正在分别压缩内容以绕过 2GB 限制..."
+          # 更改权限
           sudo chown -R $USER:$USER target_apps/
           cd target_apps
-          # 采用最高压缩率打包内容
-          zip -r9 ../Product_Apps.zip .
+          
+          # 判断文件夹是否存在，如果存在则单独打包成对应的 zip
+          if [ -d "app" ]; then zip -r9 ../Product_app.zip app/; fi
+          if [ -d "priv-app" ]; then zip -r9 ../Product_priv-app.zip priv-app/; fi
+          if [ -d "data-app" ]; then zip -r9 ../Product_data-app.zip data-app/; fi
+          
           cd ..
           
           echo "✅ 提取与压缩完成，文件信息："
-          ls -lh Product_Apps.zip
+          ls -lh Product_*.zip
 
       - name: Generate Release Tag
         id: tag
@@ -104,13 +108,14 @@ jobs:
             ### Product 分区应用提取完成
             **源 ROM**: ${{ github.event.inputs.rom_url }}
             
-            包含 `product.img` 中解压出的以下文件夹完整内容：
-            * `app`
-            * `data-app`
-            * `priv-app`
+            为了绕过 GitHub 的 2GB 单文件限制，应用已按文件夹**分别打包**：
+            * `Product_app.zip` (对应 app 文件夹)
+            * `Product_priv-app.zip` (对应 priv-app 文件夹)
+            * `Product_data-app.zip` (对应 data-app 文件夹)
             
             ⚠️ **注意**: 压缩包内的 APK 为官方原版纯提取，未进行任何精简或修改。
-          files: Product_Apps.zip
+          # 这里改为使用通配符上传所有生成的 ZIP 文件
+          files: Product_*.zip
           draft: false
           prerelease: false
 
