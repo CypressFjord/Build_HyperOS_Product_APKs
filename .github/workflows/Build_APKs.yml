@@ -73,10 +73,10 @@ jobs:
           
           if [ -f "$PROP_PATH" ]; then
             echo "找到配置文件: $PROP_PATH"
-            # 提取指定的值
+            # 提取指定的属性
+            DEVICE_DEV=$(sudo grep "ro.product.mod_device=" $PROP_PATH | cut -d'=' -f2)
+            SOTA_VER=$(sudo grep "ro.mi.xms.version.incremental=" $PROP_PATH | cut -d'=' -f2)
             OS_VER=$(sudo grep "ro.mi.os.version.incremental=" $PROP_PATH | cut -d'=' -f2)
-            MOD_DEV=$(sudo grep "ro.product.mod_device=" $PROP_PATH | cut -d'=' -f2)
-            XMS_VER=$(sudo grep "ro.mi.xms.version.incremental=" $PROP_PATH | cut -d'=' -f2)
             
             # 写入 GitHub Output 供后续步骤使用
             echo "os_version=${OS_VER}" >> $GITHUB_OUTPUT
@@ -131,9 +131,9 @@ jobs:
           name: "📦 Product 提取 - ${{ steps.props.outputs.os_version }}"
           body: |
             ## 📱 系统版本信息
-            - **系统版本**: `${{ steps.props.outputs.os_version }}`
             - **机型代号**: `${{ steps.props.outputs.mod_device }}`
             - **SOTA版本**: `${{ steps.props.outputs.xms_version }}`
+            - **系统版本**: `${{ steps.props.outputs.os_version }}`
             
             ---
             ## 📂 文件说明
