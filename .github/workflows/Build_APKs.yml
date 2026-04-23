@@ -1,4 +1,4 @@
-nname: 📦 Extract Product Apps Pro
+name: 📦 Extract Product Apps Pro
 
 on:
   workflow_dispatch:
@@ -73,22 +73,22 @@ jobs:
           
           if [ -f "$PROP_PATH" ]; then
             echo "找到配置文件: $PROP_PATH"
-            # 提取指定的属性
+            # 按照要求的顺序提取并赋值给新变量
             DEVICE_DEV=$(sudo grep "ro.product.mod_device=" $PROP_PATH | cut -d'=' -f2)
             SOTA_VER=$(sudo grep "ro.mi.xms.version.incremental=" $PROP_PATH | cut -d'=' -f2)
             OS_VER=$(sudo grep "ro.mi.os.version.incremental=" $PROP_PATH | cut -d'=' -f2)
             
             # 写入 GitHub Output 供后续步骤使用
-            echo "os_version=${OS_VER}" >> $GITHUB_OUTPUT
-            echo "mod_device=${MOD_DEV}" >> $GITHUB_OUTPUT
-            echo "xms_version=${XMS_VER}" >> $GITHUB_OUTPUT
+            echo "device_dev=${DEVICE_DEV}" >> $GITHUB_OUTPUT
+            echo "sota_ver=${SOTA_VER}" >> $GITHUB_OUTPUT
+            echo "os_ver=${OS_VER}" >> $GITHUB_OUTPUT
             
-            echo "✅ 提取成功: OS=$OS_VER, Device=$MOD_DEV, XMS=$XMS_VER"
+            echo "✅ 提取成功: Device=$DEVICE_DEV, SOTA=$SOTA_VER, OS=$OS_VER"
           else
             echo "⚠️ 未找到 build.prop，将使用默认值"
-            echo "os_version=Unknown_OS" >> $GITHUB_OUTPUT
-            echo "mod_device=Unknown_Device" >> $GITHUB_OUTPUT
-            echo "xms_version=Unknown" >> $GITHUB_OUTPUT
+            echo "device_dev=Unknown_Device" >> $GITHUB_OUTPUT
+            echo "sota_ver=Unknown" >> $GITHUB_OUTPUT
+            echo "os_ver=Unknown_OS" >> $GITHUB_OUTPUT
           fi
 
       - name: Collect Target Folders and Fast Compress
@@ -127,13 +127,13 @@ jobs:
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.props.outputs.os_version }}-${{ steps.tag.outputs.release_tag }}
-          name: "📦 Product 提取 - ${{ steps.props.outputs.os_version }}"
+          tag_name: ${{ steps.props.outputs.os_ver }}-${{ steps.tag.outputs.release_tag }}
+          name: "📦 Product 提取 - ${{ steps.props.outputs.os_ver }}"
           body: |
             ## 📱 系统版本信息
-            - **机型代号**: `${{ steps.props.outputs.mod_device }}`
-            - **SOTA版本**: `${{ steps.props.outputs.xms_version }}`
-            - **系统版本**: `${{ steps.props.outputs.os_version }}`
+            - **机型代号**: `${{ steps.props.outputs.device_dev }}`
+            - **SOTA版本**: `${{ steps.props.outputs.sota_ver }}`
+            - **系统版本**: `${{ steps.props.outputs.os_ver }}`
             
             ---
             ## 📂 文件说明
