@@ -117,8 +117,28 @@ jobs:
           if [ -d "data-app" ]; then 7z a -tzip -mx=1 -mmt=on ../Product_data-app.zip data-app/; fi
           
           cd ..
-          echo "✅ 压缩完成。"
-          ls -lh Product_*.zip
+          
+          echo "📏 检测文件体积，处理大于 2.0GB 的文件..."
+          # GitHub 绝对限制是 2147483648 字节。我们设定安全阈值为 2048000000 字节 (约 1.95 GB)
+          MAX_SIZE=2048000000
+          
+          for zipfile in Product_*.zip; do
+            if [ -f "$zipfile" ]; then
+              FILE_SIZE=$(stat -c%s "$zipfile")
+              if [ $FILE_SIZE -gt $MAX_SIZE ]; then
+                echo "⚠️ $zipfile 体积 ($FILE_SIZE bytes) 逼近 2.0GB，正在瞬间切块分卷..."
+                # 使用 split 命令进行二进制切分，-b 2000M 设定单块大小，-d 采用纯数字后缀 (00, 01...)
+                split -b 2000M -d "$zipfile" "${zipfile}"
+                
+                # 删除原版超大 zip 文件，防止触发 GitHub 上传报错
+                rm "$zipfile"
+                echo "✅ $zipfile 纯净分卷完成。"
+              fi
+            fi
+          done
+          
+          echo "✅ 最终待上传文件列表："
+          ls -lh Product_*
 
       - name: Generate Release Tag
         id: tag
@@ -139,13 +159,23 @@ jobs:
             ## 📂 文件说明
             **源 ROM**: ${{ github.event.inputs.rom_url }}
             
-            为了绕过 GitHub 2GB 上传限制，已将目录拆分打包：
-            - `Product_app.zip`: 普通应用文件夹
-            - `Product_priv-app.zip`: 私有系统应用文件夹
-            - `Product_data-app.zip`: 预装数据应用文件夹
+            为绕过 GitHub 2GB 上传限制，已拆分打包：
+            - `Product_app.zip`
+            - `Product_priv-app.zip`
+            - `Product_data-app.zip`
             
-            ⚡ *此包使用 7z 多线程极速压缩生成。*
-          files: Product_*.zip
+            🚨 **重要提醒 - 关于分卷合并解压**: 
+            如果某个原包达到 2GB 阈值，系统已自动切分为二进制分卷（例如 `xxx.zip00`, `xxx.zip01` 等）。
+            
+            **如何合并并解压**：
+            1. 下载同一应用所有的 `.zip0*` 文件放入同一个文件夹。
+            2. **Windows**: 在该文件夹空白处右键打开终端（或按 `Win+R` 输 `cmd` 进目录），执行：`copy /B Product_app.zip00 + Product_app.zip01 Product_app.zip`，然后正常解压新生成的 `Product_app.zip`。
+            3. **Linux/Mac**: 在终端执行 `cat Product_app.zip0* > Product_app.zip` 即可。
+            *(部分新版 7-Zip 也支持直接右键 .zip00 解压)*
+            
+            ⚡ *此包使用多线程及纯二进制分割技术生成。*
+          files: |
+            Product_*.zip
+            Product_*.zip0*
           draft: false
           prerelease: false
-
